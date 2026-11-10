@@ -3,6 +3,12 @@ repositories {
     maven { url = 'https://repo.codemc.io/repository/maven-public/' }
     maven { url = 'https://repo.nickuc.com/maven-releases/' }
     maven { url = 'https://repo.extendedclip.com/content/repositories/placeholderapi/' }
+    // SkyHand's SHNetwork (network mode), installed locally with 'mvn install'
+    mavenLocal {
+        content {
+            includeGroup 'org.Cry_Legende'
+        }
+    }
 }
 
 dependencies {
@@ -12,6 +18,10 @@ dependencies {
     compileOnly 'fr.xephi:authme:5.6.0-beta2'
     compileOnly 'com.nickuc.login:nlogin-api:10.3'
     compileOnly 'me.clip:placeholderapi:2.11.6'
+    // Only used by the network package, compiled with Java 25 as SHNetwork
+    compileOnly('org.Cry_Legende:SHNetwork:1.0') {
+        transitive = false
+    }
 }
 
 java {

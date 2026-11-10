@@ -2,6 +2,9 @@ package com.azuriom.azlink.common.config;
 
 import com.azuriom.azlink.common.http.server.HttpServer;
 
+import java.util.Collections;
+import java.util.List;
+
 public class PluginConfig {
 
     private String siteKey;
@@ -9,6 +12,9 @@ public class PluginConfig {
     private boolean instantCommands = true;
     private int httpPort = HttpServer.DEFAULT_PORT;
     private boolean checkUpdates = true;
+    // Left null when absent so that saving the config does not add them
+    private Boolean networkMode;
+    private List<String> networkServers;
 
     public PluginConfig() {
         this(null, null);
@@ -49,6 +55,20 @@ public class PluginConfig {
 
     public boolean hasUpdatesCheck() {
         return this.checkUpdates;
+    }
+
+    /**
+     * Whether the network mode may be used when the platform supports it (enabled when absent).
+     */
+    public boolean hasNetworkMode() {
+        return this.networkMode == null || this.networkMode;
+    }
+
+    /**
+     * The servers whose players are sent to the website in network mode, empty for every server.
+     */
+    public List<String> getNetworkServers() {
+        return this.networkServers != null ? this.networkServers : Collections.emptyList();
     }
 
     public boolean isValid() {

@@ -4,6 +4,7 @@ import com.azuriom.azlink.common.AzLinkPlugin;
 import com.azuriom.azlink.common.chat.TextColor;
 import com.azuriom.azlink.common.chat.TextComponent;
 import com.azuriom.azlink.common.data.UserInfo;
+import com.azuriom.azlink.common.network.NetworkBridge;
 import com.azuriom.azlink.common.users.MoneyAction;
 
 import java.io.IOException;
@@ -189,8 +190,13 @@ public class AzLinkCommand {
     }
 
     private boolean isOnline(String name) {
-        return this.plugin.getPlatform().getOnlinePlayers()
-                .anyMatch(player -> player.getName().equalsIgnoreCase(name));
+        if (this.plugin.getPlatform().getOnlinePlayers().anyMatch(player -> player.getName().equalsIgnoreCase(name))) {
+            return true;
+        }
+
+        NetworkBridge network = this.plugin.getNetworkBridge();
+
+        return network != null && network.isOnline(name);
     }
 
     private void sendUnknownPlayer(CommandSender sender, String name) {

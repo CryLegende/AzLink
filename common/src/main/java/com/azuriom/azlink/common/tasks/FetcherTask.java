@@ -2,15 +2,20 @@ package com.azuriom.azlink.common.tasks;
 
 import com.azuriom.azlink.common.AzLinkPlugin;
 import com.azuriom.azlink.common.command.CommandSender;
+import com.azuriom.azlink.common.data.ServerData;
 import com.azuriom.azlink.common.data.UserInfo;
 import com.azuriom.azlink.common.data.WebsiteResponse;
+import com.azuriom.azlink.common.network.NetworkBridge;
+import com.azuriom.azlink.common.network.NetworkPlayer;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -32,7 +37,7 @@ public class FetcherTask implements Runnable {
 
     @Override
     public void run() {
-        if (Instant.now().isBefore(nextRequestTime())) {
+        if (Instant.now().isBefore(nextRequestTime()) || !isNetworkLeaderOrAlone()) {
             return;
         }
 
@@ -48,6 +53,13 @@ public class FetcherTask implements Runnable {
 
         if (!this.plugin.getConfig().isValid()) {
             return CompletableFuture.completedFuture(null);
+        }
+
+        NetworkBridge network = this.plugin.getNetworkBridge();
+
+        if (network != null && !network.isLeader()) {
+            // Another server of the network talks to the website for every server
+            return network.requestFetch();
         }
 
         Instant nextRequest = nextRequestTime();
@@ -69,8 +81,23 @@ public class FetcherTask implements Runnable {
                 && this.lastFullDataSent.isBefore(now.minusSeconds(60));
 
         return CompletableFuture.supplyAsync(() -> this.plugin.getServerData(sendFullData), sync)
-                .thenComposeAsync(this.plugin.getHttpClient()::postData, async)
-                .thenAcceptAsync(res -> handleResponse(res, sendFullData), sync);
+                .thenComposeAsync(this::postData, async)
+                .thenAcceptAsync(res -> handleResponse(res, sendFullData, now), sync);
+    }
+
+    private CompletableFuture<WebsiteResponse> postData(ServerData data) {
+        if (!isNetworkLeaderOrAlone()) {
+            // This server is no longer the network leader, the new one will send the data
+            return CompletableFuture.completedFuture(null);
+        }
+
+        return this.plugin.getHttpClient().postData(data);
+    }
+
+    private boolean isNetworkLeaderOrAlone() {
+        NetworkBridge network = this.plugin.getNetworkBridge();
+
+        return network == null || network.isLeader();
     }
 
     private Instant nextRequestTime() {
@@ -102,7 +129,7 @@ public class FetcherTask implements Runnable {
         return future;
     }
 
-    private void handleResponse(WebsiteResponse response, boolean sendFullData) {
+    private void handleResponse(WebsiteResponse response, boolean sendFullData, Instant requestTime) {
         if (response == null) {
             return;
         }
@@ -111,6 +138,14 @@ public class FetcherTask implements Runnable {
             for (UserInfo user : response.getUsers()) {
                 this.plugin.getUserManager().addUser(user);
             }
+        }
+
+        NetworkBridge network = this.plugin.getNetworkBridge();
+
+        if (network != null) {
+            List<UserInfo> users = response.getUsers();
+
+            network.onFetched(users != null ? users : Collections.emptyList(), requestTime);
         }
 
         if (response.getCommands().isEmpty()) {
@@ -135,10 +170,20 @@ public class FetcherTask implements Runnable {
                     this.plugin.getLogger().warn("Duplicate players names: " + player1 + " / " + player2);
                     return p1;
                 }));
+        NetworkBridge network = this.plugin.getNetworkBridge();
 
         for (Map.Entry<String, List<String>> entry : commands.entrySet()) {
             String playerName = entry.getKey();
             CommandSender player = players.get(playerName.toLowerCase(Locale.ROOT));
+
+            if (player == null && network != null) {
+                Optional<NetworkPlayer> remotePlayer = network.findRemotePlayer(playerName);
+
+                if (remotePlayer.isPresent()) {
+                    dispatchRemoteCommands(network, remotePlayer.get(), entry.getValue());
+                    continue;
+                }
+            }
 
             if (player != null) {
                 playerName = player.getName();
@@ -149,10 +194,28 @@ public class FetcherTask implements Runnable {
                         .replace("{name}", playerName)
                         .replace("{uuid}", player != null ? player.getUuid().toString() : "?");
 
-                this.plugin.getLogger().info("Dispatching command for player " + playerName + ": " + command);
+                if (player == null && network != null) {
+                    this.plugin.getLogger().info("Dispatching command for player " + playerName + " (not online on the network): " + command);
+                } else {
+                    this.plugin.getLogger().info("Dispatching command for player " + playerName + ": " + command);
+                }
 
                 this.plugin.getPlatform().dispatchConsoleCommand(command);
             }
+        }
+    }
+
+    private void dispatchRemoteCommands(NetworkBridge network, NetworkPlayer player, List<String> commands) {
+        String playerName = player.getName();
+
+        for (String command : commands) {
+            command = command.replace("{player}", playerName)
+                    .replace("{name}", playerName)
+                    .replace("{uuid}", player.getUuid().toString());
+
+            this.plugin.getLogger().info("Sending command for player " + playerName + " to server " + player.getServer() + ": " + command);
+
+            network.dispatchCommand(player, command);
         }
     }
 }

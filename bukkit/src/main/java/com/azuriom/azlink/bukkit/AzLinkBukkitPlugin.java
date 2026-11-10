@@ -8,6 +8,7 @@ import com.azuriom.azlink.bukkit.integrations.AuthMeIntegration;
 import com.azuriom.azlink.bukkit.integrations.FoliaSchedulerAdapter;
 import com.azuriom.azlink.bukkit.integrations.SkinsRestorerIntegration;
 import com.azuriom.azlink.bukkit.integrations.NLoginIntegration;
+import com.azuriom.azlink.bukkit.network.ShNetworkBridge;
 import com.azuriom.azlink.bukkit.placeholders.BasePlaceholderExpansion;
 import com.azuriom.azlink.common.AzLinkPlatform;
 import com.azuriom.azlink.common.AzLinkPlugin;
@@ -16,6 +17,7 @@ import com.azuriom.azlink.common.data.WorldData;
 import com.azuriom.azlink.common.http.server.HttpServer;
 import com.azuriom.azlink.common.logger.JavaLoggerAdapter;
 import com.azuriom.azlink.common.logger.LoggerAdapter;
+import com.azuriom.azlink.common.network.NetworkBridge;
 import com.azuriom.azlink.common.platform.PlatformInfo;
 import com.azuriom.azlink.common.platform.PlatformType;
 import com.azuriom.azlink.common.scheduler.JavaSchedulerAdapter;
@@ -71,6 +73,11 @@ public final class AzLinkBukkitPlugin extends JavaPlugin implements AzLinkPlatfo
                 }
 
                 return super.createHttpServer();
+            }
+
+            @Override
+            protected NetworkBridge createNetworkBridge() {
+                return AzLinkBukkitPlugin.this.createNetworkBridge(this);
             }
         };
 
@@ -185,6 +192,20 @@ public final class AzLinkBukkitPlugin extends JavaPlugin implements AzLinkPlatfo
     @Override
     public void dispatchConsoleCommand(String command) {
         getServer().dispatchCommand(getServer().getConsoleSender(), command);
+    }
+
+    NetworkBridge createNetworkBridge(AzLinkPlugin plugin) {
+        if (!plugin.getConfig().hasNetworkMode() || !getServer().getPluginManager().isPluginEnabled("SHNetwork")) {
+            return null;
+        }
+
+        try {
+            // Only resolved here, so the SHNetwork classes are never needed without it
+            return ShNetworkBridge.create(plugin);
+        } catch (Throwable t) {
+            this.logger.error("Unable to enable the network mode, this server talks to the website on its own", t);
+            return null;
+        }
     }
 
     private boolean isPlayerVisible(Player player) {

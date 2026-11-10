@@ -13,6 +13,7 @@ import com.azuriom.azlink.common.http.client.HttpClient;
 import com.azuriom.azlink.common.http.server.HttpServer;
 import com.azuriom.azlink.common.http.server.NettyHttpServer;
 import com.azuriom.azlink.common.logger.LoggerAdapter;
+import com.azuriom.azlink.common.network.NetworkBridge;
 import com.azuriom.azlink.common.scheduler.SchedulerAdapter;
 import com.azuriom.azlink.common.tasks.FetcherTask;
 import com.azuriom.azlink.common.users.UserManager;
@@ -58,6 +59,7 @@ public class AzLinkPlugin {
     private PluginConfig config = new PluginConfig(null, null);
     private HttpServer httpServer;
     private Path configFile;
+    private volatile NetworkBridge networkBridge;
 
     private boolean logCpuError = true;
 
@@ -75,6 +77,11 @@ public class AzLinkPlugin {
         } catch (IOException e) {
             getLogger().error("Error while loading configuration", e);
             return;
+        }
+
+        // Set before anything can send a request, so that only the network leader talks to the website
+        if (isConfigured()) {
+            this.networkBridge = createNetworkBridge();
         }
 
         this.httpServer = createHttpServer();
@@ -125,6 +132,14 @@ public class AzLinkPlugin {
     }
 
     public void shutdown() {
+        NetworkBridge network = this.networkBridge;
+
+        if (network != null) {
+            // Let another server of the network become the leader right away
+            this.networkBridge = null;
+            network.close();
+        }
+
         getLogger().info("Shutting down scheduler");
 
         try {
@@ -157,6 +172,13 @@ public class AzLinkPlugin {
         List<PlayerData> players = this.platform.getOnlinePlayers()
                 .map(CommandSender::toData)
                 .collect(Collectors.toList());
+        NetworkBridge network = this.networkBridge;
+
+        if (network != null) {
+            // The website returns the commands and users of the players listed here, so list the whole network
+            players = network.getPlayers(players);
+        }
+
         int max = this.platform.getMaxPlayers();
 
         double cpuUsage = getCpuUsage();
@@ -197,8 +219,24 @@ public class AzLinkPlugin {
         return this.userManager;
     }
 
+    /**
+     * The network mode bridge, or null when this server runs on its own.
+     */
+    public NetworkBridge getNetworkBridge() {
+        return this.networkBridge;
+    }
+
     protected HttpServer createHttpServer() {
         return new NettyHttpServer(this);
+    }
+
+    /**
+     * Create the network mode bridge, called once the configuration is loaded.
+     *
+     * @return the bridge, or null to run on its own
+     */
+    protected NetworkBridge createNetworkBridge() {
+        return null;
     }
 
     private double getCpuUsage() {
